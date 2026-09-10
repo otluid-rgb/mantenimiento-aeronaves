@@ -1,5 +1,8 @@
-import { redirect } from 'next/navigation';
-
 export default function Home() {
-  redirect('/aeronaves');
+  return (
+    <div style={{ padding: '2rem', fontFamily: 'sans-serif' }}>
+      <h1>Panel de Mantenimiento de Flota</h1>
+      <p>Aplicación conectada y funcionando.</p>
+    </div>
+  );
 }
