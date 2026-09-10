@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
-// Conexión con Supabase desde variables de entorno
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
@@ -14,10 +13,9 @@ export default function AeronavesPage() {
   const [errorMsg, setErrorMsg] = useState(null);
   const [submitting, setSubmitting] = useState(false);
 
-  // Estado para el formulario
+  // Estado del formulario (sin modelo)
   const [formData, setFormData] = useState({
     matricula: '',
-    modelo: '',
     horas_vuelo: '',
     estado: 'Operativo'
   });
@@ -26,7 +24,6 @@ export default function AeronavesPage() {
     fetchAeronaves();
   }, []);
 
-  // Leer aeronaves desde Supabase
   async function fetchAeronaves() {
     setLoading(true);
     setErrorMsg(null);
@@ -52,7 +49,6 @@ export default function AeronavesPage() {
     });
   };
 
-  // Guardar nueva aeronave
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSubmitting(true);
@@ -60,7 +56,6 @@ export default function AeronavesPage() {
 
     const payload = {
       matricula: formData.matricula.toUpperCase(),
-      modelo: formData.modelo,
       horas_vuelo: Number(formData.horas_vuelo) || 0,
       estado: formData.estado
     };
@@ -71,21 +66,20 @@ export default function AeronavesPage() {
 
     if (error) {
       console.error('Error al insertar en Supabase:', error);
-      setErrorMsg(`Error al guardar: ${error.message} (${error.details || 'Verifica el nombre de las columnas en Supabase'})`);
+      setErrorMsg(`Error al guardar: ${error.message}`);
     } else {
-      setFormData({ matricula: '', modelo: '', horas_vuelo: '', estado: 'Operativo' });
+      setFormData({ matricula: '', horas_vuelo: '', estado: 'Operativo' });
       fetchAeronaves();
     }
     setSubmitting(false);
   };
 
   return (
-    <main className="max-w-5xl mx-auto p-6 font-sans">
+    <main className="max-w-4xl mx-auto p-6 font-sans">
       <h1 className="text-3xl font-bold mb-6 text-gray-800">
         Gestión de Flota de Aeronaves
       </h1>
 
-      {/* Alerta de error en pantalla */}
       {errorMsg && (
         <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6">
           <strong className="font-bold">Error de Supabase: </strong>
@@ -93,30 +87,17 @@ export default function AeronavesPage() {
         </div>
       )}
 
-      {/* Formulario */}
+      {/* Formulario simplificado */}
       <section className="bg-white p-6 rounded-lg shadow-md border mb-8">
         <h2 className="text-xl font-semibold mb-4 text-gray-700">Registrar Nueva Aeronave</h2>
-        <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Matrícula</label>
             <input
               type="text"
               name="matricula"
-              placeholder="Ej: EC-TST"
+              placeholder="Ej: T.12B-01"
               value={formData.matricula}
-              onChange={handleChange}
-              required
-              className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 text-black"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Modelo</label>
-            <input
-              type="text"
-              name="modelo"
-              placeholder="Ej: Cessna 172"
-              value={formData.modelo}
               onChange={handleChange}
               required
               className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 text-black"
@@ -150,7 +131,7 @@ export default function AeronavesPage() {
             </select>
           </div>
 
-          <div className="md:col-span-2">
+          <div className="md:col-span-3">
             <button
               type="submit"
               disabled={submitting}
@@ -162,7 +143,7 @@ export default function AeronavesPage() {
         </form>
       </section>
 
-      {/* Listado */}
+      {/* Listado simplificado */}
       <section className="bg-white p-6 rounded-lg shadow-md border">
         <h2 className="text-xl font-semibold mb-4 text-gray-700">Flota Registrada</h2>
         {loading ? (
@@ -175,7 +156,6 @@ export default function AeronavesPage() {
               <thead>
                 <tr className="bg-gray-100 border-b">
                   <th className="p-3 font-semibold text-gray-700">Matrícula</th>
-                  <th className="p-3 font-semibold text-gray-700">Modelo</th>
                   <th className="p-3 font-semibold text-gray-700">Horas</th>
                   <th className="p-3 font-semibold text-gray-700">Estado</th>
                 </tr>
@@ -184,7 +164,6 @@ export default function AeronavesPage() {
                 {aeronaves.map((aero) => (
                   <tr key={aero.id || aero.matricula} className="border-b hover:bg-gray-50">
                     <td className="p-3 font-bold text-gray-900">{aero.matricula}</td>
-                    <td className="p-3 text-gray-800">{aero.modelo}</td>
                     <td className="p-3 text-gray-800">{aero.horas_vuelo} hrs</td>
                     <td className="p-3">
                       <span
