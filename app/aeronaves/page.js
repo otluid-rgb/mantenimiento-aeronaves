@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
-// Función para extraer la URL limpia de Supabase
 function sanitizeSupabaseUrl(url) {
   if (!url) return '';
   let cleaned = url.trim().replace(/^["']|["']$/g, '');
@@ -20,15 +19,13 @@ function sanitizeSupabaseUrl(url) {
 
 const rawUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseUrl = sanitizeSupabaseUrl(rawUrl);
-
-const supabaseAnonKey = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '')
-  .trim()
-  .replace(/^["']|["']$/g, '');
+const supabaseAnonKey = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '').trim().replace(/^["']|["']$/g, '');
 
 const supabase = createClient(supabaseUrl || 'https://placeholder.supabase.co', supabaseAnonKey);
 
-export default function AeronavesPage() {
+export default function NuevoVueloPage() {
   const [aeronaves, setAeronaves] = useState([]);
+  const [vuelos, setVuelos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState(null);
   const [submitting, setSubmitting] = useState(false);
@@ -36,34 +33,45 @@ export default function AeronavesPage() {
   const [formData, setFormData] = useState({
     matricula: '',
     horas_vuelo: '',
-    estado: 'Operativo'
+    fecha: new Date().toISOString().split('T')[0],
+    observaciones: ''
   });
 
   useEffect(() => {
-    fetchAeronaves();
+    cargarDatosIniciales();
   }, []);
 
-  async function fetchAeronaves() {
+  async function cargarDatosIniciales() {
     setLoading(true);
     setErrorMsg(null);
 
-    if (!supabaseUrl || supabaseUrl.includes('placeholder')) {
-      setErrorMsg('No se ha detectado NEXT_PUBLIC_SUPABASE_URL válida.');
-      setLoading(false);
-      return;
-    }
-
-    const { data, error } = await supabase
+    // 1. Obtener aeronaves para rellenar el desplegable
+    const { data: dataAeronaves, error: errAero } = await supabase
       .from('aeronaves')
-      .select('*')
-      .order('id', { ascending: false });
+      .select('id, matricula, horas_vuelo, estado')
+      .order('matricula', { ascending: true });
 
-    if (error) {
-      console.error('Error al consultar Supabase:', error);
-      setErrorMsg(`Error al leer datos: ${error.message}`);
+    if (errAero) {
+      setErrorMsg(`Error al cargar aeronaves: ${errAero.message}`);
     } else {
-      setAeronaves(data || []);
+      setAeronaves(dataAeronaves || []);
+      if (dataAeronaves && dataAeronaves.length > 0) {
+        setFormData((prev) => ({ ...prev, matricula: dataAeronaves[0].matricula }));
+      }
     }
+
+    // 2. Obtener lista de vuelos registrados
+    const { data: dataVuelos, error: errVuelos } = await supabase
+      .from('vuelos')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (errVuelos) {
+      console.error('Error al cargar historial de vuelos:', errVuelos);
+    } else {
+      setVuelos(dataVuelos || []);
+    }
+
     setLoading(false);
   }
 
@@ -79,82 +87,102 @@ export default function AeronavesPage() {
     setSubmitting(true);
     setErrorMsg(null);
 
-    const payload = {
-      matricula: formData.matricula.toUpperCase(),
-      horas_vuelo: Number(formData.horas_vuelo) || 0,
-      estado: formData.estado
-    };
+    const horas = Number(formData.horas_vuelo) || 0;
 
-    const { error } = await supabase
-      .from('aeronaves')
-      .insert([payload]);
-
-    if (error) {
-      console.error('Error al insertar en Supabase:', error);
-      setErrorMsg(`Error al guardar: ${error.message}`);
-    } else {
-      setFormData({ matricula: '', horas_vuelo: '', estado: 'Operativo' });
-      fetchAeronaves();
+    if (!formData.matricula) {
+      setErrorMsg('Debes seleccionar una aeronave.');
+      setSubmitting(false);
+      return;
     }
+
+    // 1. Insertar el nuevo vuelo
+    const { error: errInsert } = await supabase
+      .from('vuelos')
+      .insert([
+        {
+          matricula: formData.matricula,
+          horas_vuelo: horas,
+          fecha: formData.fecha,
+          observaciones: formData.observaciones
+        }
+      ]);
+
+    if (errInsert) {
+      setErrorMsg(`Error al guardar el vuelo: ${errInsert.message}`);
+      setSubmitting(false);
+      return;
+    }
+
+    // 2. Sumar automáticamente las horas a la aeronave
+    const aeronaveSel = aeronaves.find((a) => a.matricula === formData.matricula);
+    if (aeronaveSel) {
+      const nuevasHoras = (Number(aeronaveSel.horas_vuelo) || 0) + horas;
+      await supabase
+        .from('aeronaves')
+        .update({ horas_vuelo: nuevasHoras })
+        .eq('matricula', formData.matricula);
+    }
+
+    // Resetear formulario
+    setFormData({
+      matricula: aeronaves.length > 0 ? aeronaves[0].matricula : '',
+      horas_vuelo: '',
+      fecha: new Date().toISOString().split('T')[0],
+      observaciones: ''
+    });
+
+    cargarDatosIniciales();
     setSubmitting(false);
-  };
-
-  // Función para eliminar una aeronave por su ID
-  const handleDelete = async (id, matricula) => {
-    const confirmDelete = window.confirm(`¿Estás seguro de que deseas eliminar la aeronave ${matricula}?`);
-    if (!confirmDelete) return;
-
-    setErrorMsg(null);
-
-    const { error } = await supabase
-      .from('aeronaves')
-      .delete()
-      .eq('id', id);
-
-    if (error) {
-      console.error('Error al eliminar en Supabase:', error);
-      setErrorMsg(`Error al eliminar: ${error.message}`);
-    } else {
-      fetchAeronaves();
-    }
   };
 
   return (
     <main className="max-w-4xl mx-auto p-6 font-sans">
-      <h1 className="text-3xl font-bold mb-6 text-gray-800">
-        Gestión de Flota de Aeronaves
-      </h1>
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-3xl font-bold text-gray-800">Registro de Nuevo Vuelo</h1>
+        <a href="/aeronaves" className="text-blue-600 hover:underline text-sm font-semibold">
+          &larr; Volver a Gestión de Flota
+        </a>
+      </div>
 
       {errorMsg && (
         <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6">
-          <strong className="font-bold">Error de Supabase: </strong>
+          <strong className="font-bold">Error: </strong>
           <span>{errorMsg}</span>
         </div>
       )}
 
       {/* Formulario */}
       <section className="bg-white p-6 rounded-lg shadow-md border mb-8">
-        <h2 className="text-xl font-semibold mb-4 text-gray-700">Registrar Nueva Aeronave</h2>
+        <h2 className="text-xl font-semibold mb-4 text-gray-700">Añadir Vuelo</h2>
         <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Matrícula</label>
-            <input
-              type="text"
+            <label className="block text-sm font-medium text-gray-700 mb-1">Aeronave (Matrícula)</label>
+            <select
               name="matricula"
-              placeholder="Ej: T.12B-01"
               value={formData.matricula}
               onChange={handleChange}
               required
-              className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 text-black"
-            />
+              className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 text-black bg-white"
+            >
+              {aeronaves.length === 0 ? (
+                <option value="">No hay aeronaves disponibles</option>
+              ) : (
+                aeronaves.map((aero) => (
+                  <option key={aero.id || aero.matricula} value={aero.matricula}>
+                    {aero.matricula} ({aero.estado}) - {aero.horas_vuelo} hrs
+                  </option>
+                ))
+              )}
+            </select>
           </div>
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Horas de Vuelo</label>
             <input
               type="number"
+              step="0.1"
               name="horas_vuelo"
-              placeholder="Ej: 150"
+              placeholder="Ej: 2.5"
               value={formData.horas_vuelo}
               onChange={handleChange}
               required
@@ -163,75 +191,66 @@ export default function AeronavesPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Estado</label>
-            <select
-              name="estado"
-              value={formData.estado}
+            <label className="block text-sm font-medium text-gray-700 mb-1">Fecha</label>
+            <input
+              type="date"
+              name="fecha"
+              value={formData.fecha}
+              onChange={handleChange}
+              required
+              className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 text-black"
+            />
+          </div>
+
+          <div className="md:col-span-3">
+            <label className="block text-sm font-medium text-gray-700 mb-1">Observaciones / Misión</label>
+            <input
+              type="text"
+              name="observaciones"
+              placeholder="Ej: Misión de entrenamiento local / Patrulla"
+              value={formData.observaciones}
               onChange={handleChange}
               className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 text-black"
-            >
-              <option value="Operativo">Operativo</option>
-              <option value="En Mantenimiento">En Mantenimiento</option>
-              <option value="Inactivo">Inactivo</option>
-            </select>
+            />
           </div>
 
           <div className="md:col-span-3">
             <button
               type="submit"
-              disabled={submitting}
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded transition duration-200 disabled:opacity-50"
+              disabled={submitting || aeronaves.length === 0}
+              className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-4 rounded transition duration-200 disabled:opacity-50"
             >
-              {submitting ? 'Guardando...' : 'Guardar Aeronave'}
+              {submitting ? 'Guardando Vuelo...' : 'Registrar Vuelo'}
             </button>
           </div>
         </form>
       </section>
 
-      {/* Listado */}
+      {/* Historial */}
       <section className="bg-white p-6 rounded-lg shadow-md border">
-        <h2 className="text-xl font-semibold mb-4 text-gray-700">Flota Registrada</h2>
+        <h2 className="text-xl font-semibold mb-4 text-gray-700">Historial de Vuelos Registrados</h2>
         {loading ? (
-          <p className="text-gray-500">Cargando flota...</p>
-        ) : aeronaves.length === 0 ? (
-          <p className="text-gray-500">No hay aeronaves registradas en la base de datos.</p>
+          <p className="text-gray-500">Cargando vuelos...</p>
+        ) : vuelos.length === 0 ? (
+          <p className="text-gray-500">No se han registrado vuelos todavía.</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-gray-100 border-b">
+                  <th className="p-3 font-semibold text-gray-700">Fecha</th>
                   <th className="p-3 font-semibold text-gray-700">Matrícula</th>
                   <th className="p-3 font-semibold text-gray-700">Horas</th>
-                  <th className="p-3 font-semibold text-gray-700">Estado</th>
-                  <th className="p-3 font-semibold text-gray-700 text-right">Acciones</th>
+                  <th className="p-3 font-semibold text-gray-700">Observaciones</th>
                 </tr>
               </thead>
               <tbody>
-                {aeronaves.map((aero) => (
-                  <tr key={aero.id || aero.matricula} className="border-b hover:bg-gray-50">
-                    <td className="p-3 font-bold text-gray-900">{aero.matricula}</td>
-                    <td className="p-3 text-gray-800">{aero.horas_vuelo} hrs</td>
-                    <td className="p-3">
-                      <span
-                        className={`px-2 py-1 text-xs rounded-full font-semibold ${
-                          aero.estado === 'Operativo'
-                            ? 'bg-green-100 text-green-800'
-                            : aero.estado === 'En Mantenimiento'
-                            ? 'bg-yellow-100 text-yellow-800'
-                            : 'bg-red-100 text-red-800'
-                        }`}
-                      >
-                        {aero.estado}
-                      </span>
-                    </td>
-                    <td className="p-3 text-right">
-                      <button
-                        onClick={() => handleDelete(aero.id, aero.matricula)}
-                        className="bg-red-50 text-red-600 hover:bg-red-600 hover:text-white border border-red-200 px-3 py-1 rounded text-xs font-semibold transition duration-150"
-                      >
-                        Eliminar
-                      </button>
-                    </td>
+                {vuelos.map((vuelo) => (
+                  <tr key={vuelo.id} className="border-b hover:bg-gray-50">
+                    <td className="p-3 text-gray-800">{vuelo.fecha}</td>
+                    <td className="p-3 font-bold text-gray-900">{vuelo.matricula}</td>
+                    <td className="p-3 text-gray-800">{vuelo.horas_vuelo} hrs</td>
+                    <td className="p-3 text-gray-600">{vuelo.observaciones || '-'}</td>
                   </tr>
                 ))}
               </tbody>
