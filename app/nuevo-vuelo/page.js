@@ -34,10 +34,7 @@ export default function NuevoVueloPage() {
   const [formData, setFormData] = useState({
     aeronave_id: '',
     fecha: new Date().toISOString().split('T')[0],
-    origen: '',
-    destino: '',
     horas_vuelo: '',
-    piloto: '',
     observaciones: ''
   });
 
@@ -53,11 +50,11 @@ export default function NuevoVueloPage() {
       // 1. Cargar aeronaves
       const { data: aeroData, error: aeroErr } = await supabase
         .from('aeronaves')
-        .select('*');
+        .select('*')
+        .order('id', { ascending: true });
 
       if (aeroErr) {
-        console.error('Error cargando aeronaves:', aeroErr);
-        setErrorMsg(`Error al cargar aeronaves de la base de datos: ${aeroErr.message}`);
+        setErrorMsg(`Error al cargar aeronaves: ${aeroErr.message}`);
       } else if (aeroData) {
         setAeronaves(aeroData);
         if (aeroData.length > 0) {
@@ -65,17 +62,17 @@ export default function NuevoVueloPage() {
         }
       }
 
-      // 2. Cargar vuelos
-      const { data: vueloData } = await supabase
+      // 2. Cargar historial de vuelos
+      const { data: vueloData, error: vueloErr } = await supabase
         .from('vuelos')
         .select('*, aeronaves(matricula)')
         .order('id', { ascending: false });
 
-      if (vueloData) {
+      if (!vueloErr && vueloData) {
         setVuelos(vueloData);
       }
     } catch (err) {
-      console.error('Error general:', err);
+      console.error('Error al cargar datos:', err);
       setErrorMsg('Ocurrió un error al conectar con Supabase.');
     } finally {
       setLoading(false);
@@ -103,17 +100,14 @@ export default function NuevoVueloPage() {
       return;
     }
 
-    // 1. Guardar el vuelo
+    // 1. Guardar el vuelo en la tabla 'vuelos'
     const { error: insertError } = await supabase
       .from('vuelos')
       .insert([
         {
           aeronave_id: formData.aeronave_id,
           fecha: formData.fecha,
-          origen: formData.origen.trim().toUpperCase(),
-          destino: formData.destino.trim().toUpperCase(),
           horas_vuelo: horas,
-          piloto: formData.piloto.trim(),
           observaciones: formData.observaciones.trim()
         }
       ]);
@@ -124,7 +118,7 @@ export default function NuevoVueloPage() {
       return;
     }
 
-    // 2. Actualizar horas de la aeronave
+    // 2. Sumar las horas de vuelo a la aeronave
     const aeronaveSeleccionada = aeronaves.find(a => String(a.id) === String(formData.aeronave_id));
     if (aeronaveSeleccionada) {
       const nuevasHorasTotales = (Number(aeronaveSeleccionada.horas_vuelo) || 0) + horas;
@@ -135,16 +129,13 @@ export default function NuevoVueloPage() {
         .eq('id', formData.aeronave_id);
     }
 
-    setSuccessMsg('¡Vuelo registrado correctamente!');
+    setSuccessMsg('¡Vuelo registrado con éxito y horas actualizadas!');
 
-    // Resetear formulario manteniendo la fecha actual y la primera aeronave
+    // Limpiar formulario
     setFormData({
       aeronave_id: aeronaves.length > 0 ? aeronaves[0].id : '',
       fecha: new Date().toISOString().split('T')[0],
-      origen: '',
-      destino: '',
       horas_vuelo: '',
-      piloto: '',
       observaciones: ''
     });
 
@@ -160,13 +151,13 @@ export default function NuevoVueloPage() {
           href="/aeronaves"
           className="bg-gray-600 hover:bg-gray-700 text-white font-semibold py-2 px-4 rounded text-sm transition duration-200"
         >
-          ← Ir a Gestión de Flota
+          ← Volver a Flota
         </a>
       </div>
 
       {errorMsg && (
         <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6">
-          <strong className="font-bold">Error: </strong>
+          <strong className="font-bold">Aviso: </strong>
           <span>{errorMsg}</span>
         </div>
       )}
@@ -177,17 +168,16 @@ export default function NuevoVueloPage() {
         </div>
       )}
 
+      {/* Formulario de Registro */}
       <section className="bg-white p-6 rounded-lg shadow-md border mb-8">
         <h2 className="text-xl font-semibold mb-4 text-gray-700">Nuevo Vuelo</h2>
-        
+
         {loading ? (
-          <p className="text-gray-500">Cargando flota de aeronaves...</p>
+          <p className="text-gray-500">Cargando flota...</p>
         ) : aeronaves.length === 0 ? (
           <div className="bg-amber-50 border border-amber-300 p-4 rounded text-amber-800">
-            <p className="font-semibold mb-2">No hay aeronaves disponibles en el desplegable.</p>
-            <p className="text-sm mb-3">
-              Asegúrate de haber registrado al menos una aeronave en la sección de flota o de ejecutar el script SQL de permisos.
-            </p>
+            <p className="font-semibold mb-1">No hay aeronaves disponibles.</p>
+            <p className="text-sm mb-3">Registra primero una aeronave en la sección de flota.</p>
             <a
               href="/aeronaves"
               className="inline-block bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold py-2 px-3 rounded"
@@ -196,7 +186,7 @@ export default function NuevoVueloPage() {
             </a>
           </div>
         ) : (
-          <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Aeronave (Matrícula)</label>
               <select
@@ -227,32 +217,6 @@ export default function NuevoVueloPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Origen (ICAO / IATA)</label>
-              <input
-                type="text"
-                name="origen"
-                placeholder="Ej: LEMD"
-                value={formData.origen}
-                onChange={handleChange}
-                required
-                className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 text-black"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Destino (ICAO / IATA)</label>
-              <input
-                type="text"
-                name="destino"
-                placeholder="Ej: LEBL"
-                value={formData.destino}
-                onChange={handleChange}
-                required
-                className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 text-black"
-              />
-            </div>
-
-            <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Horas de Vuelo</label>
               <input
                 type="number"
@@ -266,31 +230,19 @@ export default function NuevoVueloPage() {
               />
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Piloto / Comandante</label>
-              <input
-                type="text"
-                name="piloto"
-                placeholder="Ej: Juan Pérez"
-                value={formData.piloto}
-                onChange={handleChange}
-                className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 text-black"
-              />
-            </div>
-
-            <div className="md:col-span-2">
+            <div className="md:col-span-3">
               <label className="block text-sm font-medium text-gray-700 mb-1">Observaciones</label>
               <textarea
                 name="observaciones"
                 rows="2"
-                placeholder="Notas adicionales..."
+                placeholder="Notas sobre el vuelo (opcional)..."
                 value={formData.observaciones}
                 onChange={handleChange}
                 className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 text-black"
               ></textarea>
             </div>
 
-            <div className="md:col-span-2">
+            <div className="md:col-span-3">
               <button
                 type="submit"
                 disabled={submitting || aeronaves.length === 0}
@@ -315,9 +267,8 @@ export default function NuevoVueloPage() {
                 <tr className="bg-gray-100 border-b">
                   <th className="p-3 font-semibold text-gray-700">Fecha</th>
                   <th className="p-3 font-semibold text-gray-700">Aeronave</th>
-                  <th className="p-3 font-semibold text-gray-700">Ruta</th>
-                  <th className="p-3 font-semibold text-gray-700">Horas</th>
-                  <th className="p-3 font-semibold text-gray-700">Piloto</th>
+                  <th className="p-3 font-semibold text-gray-700">Horas de Vuelo</th>
+                  <th className="p-3 font-semibold text-gray-700">Observaciones</th>
                 </tr>
               </thead>
               <tbody>
@@ -327,11 +278,8 @@ export default function NuevoVueloPage() {
                     <td className="p-3 font-bold text-gray-900">
                       {vuelo.aeronaves?.matricula || `ID: ${vuelo.aeronave_id}`}
                     </td>
-                    <td className="p-3 text-gray-800">
-                      {vuelo.origen} → {vuelo.destino}
-                    </td>
                     <td className="p-3 text-gray-800">{vuelo.horas_vuelo} hrs</td>
-                    <td className="p-3 text-gray-700">{vuelo.piloto || '-'}</td>
+                    <td className="p-3 text-gray-600">{vuelo.observaciones || '-'}</td>
                   </tr>
                 ))}
               </tbody>
