@@ -3,13 +3,23 @@
 import { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
-// Limpieza y formateo automático de las variables de entorno
+// Función para extraer estrictamente el origen "https://xxxx.supabase.co"
+function sanitizeSupabaseUrl(url) {
+  if (!url) return '';
+  let cleaned = url.trim().replace(/^["']|["']$/g, '');
+  if (!cleaned.startsWith('http://') && !cleaned.startsWith('https://')) {
+    cleaned = 'https://' + cleaned;
+  }
+  try {
+    const parsed = new URL(cleaned);
+    return parsed.origin; // Corta de raíz cualquier subruta sobrante (/rest/v1, /aeronaves, etc.)
+  } catch (e) {
+    return cleaned;
+  }
+}
+
 const rawUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseUrl = rawUrl
-  .trim()
-  .replace(/^["']|["']$/g, '')
-  .replace(/\/rest\/v1\/?$/i, '')
-  .replace(/\/+$/, '');
+const supabaseUrl = sanitizeSupabaseUrl(rawUrl);
 
 const supabaseAnonKey = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '')
   .trim()
@@ -37,8 +47,8 @@ export default function AeronavesPage() {
     setLoading(true);
     setErrorMsg(null);
 
-    if (!supabaseUrl) {
-      setErrorMsg('No se ha detectado NEXT_PUBLIC_SUPABASE_URL en las variables de entorno.');
+    if (!supabaseUrl || supabaseUrl.includes('placeholder')) {
+      setErrorMsg('No se ha detectado NEXT_PUBLIC_SUPABASE_URL válida.');
       setLoading(false);
       return;
     }
@@ -95,9 +105,10 @@ export default function AeronavesPage() {
         Gestión de Flota de Aeronaves
       </h1>
 
-      {/* Indicador de diagnóstico de URL */}
-      <div className="bg-gray-100 p-3 rounded mb-6 text-xs text-gray-600 font-mono break-all">
-        <strong>Conectando a:</strong> {supabaseUrl || 'URL No definida'}
+      {/* Recuadro de diagnóstico de la URL detectada */}
+      <div className="bg-gray-100 p-3 rounded mb-6 text-xs text-gray-700 font-mono break-all border">
+        <div><strong>URL Detectada en Vercel:</strong> {rawUrl || '(vacía)'}</div>
+        <div className="text-blue-700 font-bold mt-1"><strong>URL Depurada:</strong> {supabaseUrl || '(no procesada)'}</div>
       </div>
 
       {errorMsg && (
