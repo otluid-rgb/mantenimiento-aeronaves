@@ -1,216 +1,331 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabaseClient';
+import { createClient } from '@supabase/supabase-js';
+
+function sanitizeSupabaseUrl(url) {
+  if (!url) return '';
+  let cleaned = url.trim().replace(/^["']|["']$/g, '');
+  if (!cleaned.startsWith('http://') && !cleaned.startsWith('https://')) {
+    cleaned = 'https://' + cleaned;
+  }
+  try {
+    const parsed = new URL(cleaned);
+    return parsed.origin;
+  } catch (e) {
+    return cleaned;
+  }
+}
+
+const rawUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseUrl = sanitizeSupabaseUrl(rawUrl);
+const supabaseAnonKey = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '').trim().replace(/^["']|["']$/g, '');
+
+const supabase = createClient(supabaseUrl || 'https://placeholder.supabase.co', supabaseAnonKey);
 
 export default function NuevoVueloPage() {
   const [aeronaves, setAeronaves] = useState([]);
-  const [loadingAeronaves, setLoadingAeronaves] = useState(true);
+  const [vuelos, setVuelos] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState(null);
+  const [successMsg, setSuccessMsg] = useState(null);
   const [submitting, setSubmitting] = useState(false);
-  const [mensaje, setMensaje] = useState({ tipo: '', texto: '' });
 
-  const [form, setForm] = useState({
+  const [formData, setFormData] = useState({
     aeronave_id: '',
-    piloto_nombre: '',
+    fecha: new Date().toISOString().split('T')[0],
+    origen: '',
+    destino: '',
     horas_vuelo: '',
-    tomas: '',
-    arranques: '',
-    observaciones: '',
+    piloto: '',
+    observaciones: ''
   });
 
   useEffect(() => {
-    const fetchAeronaves = async () => {
-      const { data, error } = await supabase
-        .from('aeronaves')
-        .select('id, matricula')
-        .order('matricula', { ascending: true });
-
-      if (!error && data) {
-        setAeronaves(data);
-      }
-      setLoadingAeronaves(false);
-    };
-
-    fetchAeronaves();
+    cargarDatos();
   }, []);
 
+  async function cargarDatos() {
+    setLoading(true);
+    setErrorMsg(null);
+
+    // Cargar aeronaves disponibles
+    const { data: aeroData, error: aeroErr } = await supabase
+      .from('aeronaves')
+      .select('*')
+      .order('matricula', { ascending: true });
+
+    if (aeroErr) {
+      setErrorMsg(`Error al cargar aeronaves: ${aeroErr.message}`);
+    } else {
+      setAeronaves(aeroData || []);
+      if (aeroData && aeroData.length > 0) {
+        setFormData((prev) => ({ ...prev, aeronave_id: aeroData[0].id }));
+      }
+    }
+
+    // Cargar historial de vuelos registrados
+    const { data: vueloData, error: vueloErr } = await supabase
+      .from('vuelos')
+      .select('*, aeronaves(matricula)')
+      .order('id', { ascending: false });
+
+    if (!vueloErr && vueloData) {
+      setVuelos(vueloData);
+    }
+
+    setLoading(false);
+  }
+
   const handleChange = (e) => {
-    setForm({ ...form, [e.target.name]: e.target.value });
+    setFormData({
+      ...formData,
+      [e.target.name]: e.target.value
+    });
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setMensaje({ tipo: '', texto: '' });
+    setSubmitting(true);
+    setErrorMsg(null);
+    setSuccessMsg(null);
 
-    if (!form.aeronave_id) {
-      setMensaje({ tipo: 'error', texto: 'Por favor, selecciona una aeronave.' });
+    const horas = Number(formData.horas_vuelo) || 0;
+
+    if (!formData.aeronave_id) {
+      setErrorMsg('Debes seleccionar una aeronave.');
+      setSubmitting(false);
       return;
     }
 
-    setSubmitting(true);
+    // 1. Insertar el vuelo en la tabla 'vuelos'
+    const { error: insertError } = await supabase
+      .from('vuelos')
+      .insert([
+        {
+          aeronave_id: formData.aeronave_id,
+          fecha: formData.fecha,
+          origen: formData.origen.trim().toUpperCase(),
+          destino: formData.destino.trim().toUpperCase(),
+          horas_vuelo: horas,
+          piloto: formData.piloto.trim(),
+          observaciones: formData.observaciones.trim()
+        }
+      ]);
 
-    const { error } = await supabase.from('registros_vuelo').insert([
-      {
-        aeronave_id: form.aeronave_id,
-        piloto_nombre: form.piloto_nombre.trim(),
-        horas_vuelo: parseFloat(form.horas_vuelo),
-        tomas: parseInt(form.tomas, 10),
-        arranques: parseInt(form.arranques, 10),
-        observaciones: form.observaciones.trim() || null,
-      },
-    ]);
-
-    if (error) {
-      setMensaje({ tipo: 'error', texto: 'Error al registrar el vuelo: ' + error.message });
-    } else {
-      setMensaje({
-        tipo: 'éxito',
-        texto: 'Vuelo registrado exitosamente. Los acumulados de la célula y los componentes se han actualizado.',
-      });
-      setForm({
-        aeronave_id: '',
-        piloto_nombre: '',
-        horas_vuelo: '',
-        tomas: '',
-        arranques: '',
-        observaciones: '',
-      });
+    if (insertError) {
+      setErrorMsg(`Error al registrar el vuelo: ${insertError.message}`);
+      setSubmitting(false);
+      return;
     }
+
+    // 2. Sumar las horas de vuelo a la aeronave seleccionada
+    const aeronaveSeleccionada = aeronaves.find(a => String(a.id) === String(formData.aeronave_id));
+    if (aeronaveSeleccionada) {
+      const nuevasHorasTotales = (Number(aeronaveSeleccionada.horas_vuelo) || 0) + horas;
+      
+      await supabase
+        .from('aeronaves')
+        .update({ horas_vuelo: nuevasHorasTotales })
+        .eq('id', formData.aeronave_id);
+    }
+
+    setSuccessMsg('¡Vuelo registrado con éxito y horas actualizadas en la aeronave!');
+
+    // Limpiar formulario
+    setFormData({
+      aeronave_id: aeronaves.length > 0 ? aeronaves[0].id : '',
+      fecha: new Date().toISOString().split('T')[0],
+      origen: '',
+      destino: '',
+      horas_vuelo: '',
+      piloto: '',
+      observaciones: ''
+    });
+
+    await cargarDatos();
     setSubmitting(false);
   };
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-white">Registrar Parte de Vuelo</h2>
-        <p className="text-slate-400 text-sm">
-          Introduce las horas, tomas y arranques realizados durante la misión.
-        </p>
+    <main className="max-w-4xl mx-auto p-6 font-sans">
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-3xl font-bold text-gray-800">Registro de Vuelos</h1>
+        <a
+          href="/aeronaves"
+          className="bg-gray-600 hover:bg-gray-700 text-white font-semibold py-2 px-4 rounded text-sm transition duration-200"
+        >
+          ← Volver a Flota
+        </a>
       </div>
 
-      {mensaje.texto && (
-        <div
-          className={`p-4 rounded-lg font-medium text-sm ${
-            mensaje.tipo === 'error'
-              ? 'bg-rose-950/80 border border-rose-500/50 text-rose-200'
-              : 'bg-emerald-950/80 border border-emerald-500/50 text-emerald-200'
-          }`}
-        >
-          {mensaje.texto}
+      {errorMsg && (
+        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6">
+          <strong className="font-bold">Aviso: </strong>
+          <span>{errorMsg}</span>
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="bg-slate-800 p-6 rounded-xl border border-slate-700 shadow-xl space-y-6">
-        <div>
-          <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-2">
-            Aeronave *
-          </label>
-          <select
-            name="aeronave_id"
-            value={form.aeronave_id}
-            onChange={handleChange}
-            required
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono"
-          >
-            <option value="">
-              {loadingAeronaves ? 'Cargando aeronaves...' : '-- Seleccionar Matrícula --'}
-            </option>
-            {aeronaves.map((aero) => (
-              <option key={aero.id} value={aero.id}>
-                {aero.matricula}
-              </option>
-            ))}
-          </select>
+      {successMsg && (
+        <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-6">
+          <span>{successMsg}</span>
         </div>
+      )}
 
-        <div>
-          <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-2">
-            Piloto / Comandante *
-          </label>
-          <input
-            type="text"
-            name="piloto_nombre"
-            value={form.piloto_nombre}
-            onChange={handleChange}
-            placeholder="Ej. Cap. C. Pérez"
-            required
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500"
-          />
-        </div>
+      {/* Formulario para registrar vuelo */}
+      <section className="bg-white p-6 rounded-lg shadow-md border mb-8">
+        <h2 className="text-xl font-semibold mb-4 text-gray-700">Nuevo Vuelo</h2>
+        
+        {aeronaves.length === 0 && !loading ? (
+          <p className="text-amber-600 font-medium">
+            No hay aeronaves registradas. Primero debes registrar al menos una aeronave en la página de Flota.
+          </p>
+        ) : (
+          <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Aeronave (Matrícula)</label>
+              <select
+                name="aeronave_id"
+                value={formData.aeronave_id}
+                onChange={handleChange}
+                required
+                className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 text-black bg-white"
+              >
+                {aeronaves.map((aero) => (
+                  <option key={aero.id} value={aero.id}>
+                    {aero.matricula} ({aero.horas_vuelo} hrs acumuladas)
+                  </option>
+                ))}
+              </select>
+            </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-2">
-              Horas de Vuelo *
-            </label>
-            <input
-              type="number"
-              step="0.01"
-              min="0.01"
-              name="horas_vuelo"
-              value={form.horas_vuelo}
-              onChange={handleChange}
-              placeholder="2.50"
-              required
-              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono"
-            />
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Fecha</label>
+              <input
+                type="date"
+                name="fecha"
+                value={formData.fecha}
+                onChange={handleChange}
+                required
+                className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 text-black"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Origen (ICAO/IATA)</label>
+              <input
+                type="text"
+                name="origen"
+                placeholder="Ej: LEMD"
+                value={formData.origen}
+                onChange={handleChange}
+                required
+                className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 text-black"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Destino (ICAO/IATA)</label>
+              <input
+                type="text"
+                name="destino"
+                placeholder="Ej: LEBL"
+                value={formData.destino}
+                onChange={handleChange}
+                required
+                className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 text-black"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Horas de Vuelo</label>
+              <input
+                type="number"
+                step="0.1"
+                name="horas_vuelo"
+                placeholder="Ej: 2.5"
+                value={formData.horas_vuelo}
+                onChange={handleChange}
+                required
+                className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 text-black"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Piloto / Comandante</label>
+              <input
+                type="text"
+                name="piloto"
+                placeholder="Ej: Juan Pérez"
+                value={formData.piloto}
+                onChange={handleChange}
+                className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 text-black"
+              />
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Observaciones</label>
+              <textarea
+                name="observaciones"
+                rows="2"
+                placeholder="Notas adicionales sobre el vuelo..."
+                value={formData.observaciones}
+                onChange={handleChange}
+                className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 text-black"
+              ></textarea>
+            </div>
+
+            <div className="md:col-span-2">
+              <button
+                type="submit"
+                disabled={submitting || aeronaves.length === 0}
+                className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-4 rounded transition duration-200 disabled:opacity-50"
+              >
+                {submitting ? 'Guardando Vuelo...' : 'Registrar Vuelo'}
+              </button>
+            </div>
+          </form>
+        )}
+      </section>
+
+      {/* Tabla de Vuelos Recientes */}
+      <section className="bg-white p-6 rounded-lg shadow-md border">
+        <h2 className="text-xl font-semibold mb-4 text-gray-700">Historial de Vuelos Registrados</h2>
+        {loading ? (
+          <p className="text-gray-500">Cargando historial...</p>
+        ) : vuelos.length === 0 ? (
+          <p className="text-gray-500">No hay vuelos registrados aún.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-gray-100 border-b">
+                  <th className="p-3 font-semibold text-gray-700">Fecha</th>
+                  <th className="p-3 font-semibold text-gray-700">Aeronave</th>
+                  <th className="p-3 font-semibold text-gray-700">Ruta</th>
+                  <th className="p-3 font-semibold text-gray-700">Horas</th>
+                  <th className="p-3 font-semibold text-gray-700">Piloto</th>
+                </tr>
+              </thead>
+              <tbody>
+                {vuelos.map((vuelo) => (
+                  <tr key={vuelo.id} className="border-b hover:bg-gray-50">
+                    <td className="p-3 text-gray-800">{vuelo.fecha}</td>
+                    <td className="p-3 font-bold text-gray-900">
+                      {vuelo.aeronaves?.matricula || vuelo.aeronave_id}
+                    </td>
+                    <td className="p-3 text-gray-800">
+                      {vuelo.origen} → {vuelo.destino}
+                    </td>
+                    <td className="p-3 text-gray-800">{vuelo.horas_vuelo} hrs</td>
+                    <td className="p-3 text-gray-700">{vuelo.piloto || '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-2">
-              Tomas (Aterrizajes) *
-            </label>
-            <input
-              type="number"
-              min="0"
-              name="tomas"
-              value={form.tomas}
-              onChange={handleChange}
-              placeholder="3"
-              required
-              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-2">
-              Arranques *
-            </label>
-            <input
-              type="number"
-              min="0"
-              name="arranques"
-              value={form.arranques}
-              onChange={handleChange}
-              placeholder="1"
-              required
-              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono"
-            />
-          </div>
-        </div>
-
-        <div>
-          <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-2">
-            Observaciones
-          </label>
-          <textarea
-            name="observaciones"
-            rows="3"
-            value={form.observaciones}
-            onChange={handleChange}
-            placeholder="Escribe aquí novedades del vuelo o estado del material..."
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500"
-          ></textarea>
-        </div>
-
-        <button
-          type="submit"
-          disabled={submitting}
-          className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-lg transition-colors shadow-lg disabled:opacity-50"
-        >
-          {submitting ? 'Procesando...' : 'Guardar Parte de Vuelo'}
-        </button>
-      </form>
-    </div>
+        )}
+      </section>
+    </main>
   );
 }
