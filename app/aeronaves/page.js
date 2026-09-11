@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
-// Función para extraer estrictamente el origen "https://xxxx.supabase.co"
+// Función para extraer la URL limpia de Supabase
 function sanitizeSupabaseUrl(url) {
   if (!url) return '';
   let cleaned = url.trim().replace(/^["']|["']$/g, '');
@@ -12,7 +12,7 @@ function sanitizeSupabaseUrl(url) {
   }
   try {
     const parsed = new URL(cleaned);
-    return parsed.origin; // Corta de raíz cualquier subruta sobrante (/rest/v1, /aeronaves, etc.)
+    return parsed.origin;
   } catch (e) {
     return cleaned;
   }
@@ -99,6 +99,26 @@ export default function AeronavesPage() {
     setSubmitting(false);
   };
 
+  // Función para eliminar una aeronave por su ID
+  const handleDelete = async (id, matricula) => {
+    const confirmDelete = window.confirm(`¿Estás seguro de que deseas eliminar la aeronave ${matricula}?`);
+    if (!confirmDelete) return;
+
+    setErrorMsg(null);
+
+    const { error } = await supabase
+      .from('aeronaves')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      console.error('Error al eliminar en Supabase:', error);
+      setErrorMsg(`Error al eliminar: ${error.message}`);
+    } else {
+      fetchAeronaves();
+    }
+  };
+
   return (
     <main className="max-w-4xl mx-auto p-6 font-sans">
       <h1 className="text-3xl font-bold mb-6 text-gray-800">
@@ -174,7 +194,7 @@ export default function AeronavesPage() {
         </form>
       </section>
 
-      {/* Listado */}
+      {/* Listado con columna de Acciones */}
       <section className="bg-white p-6 rounded-lg shadow-md border">
         <h2 className="text-xl font-semibold mb-4 text-gray-700">Flota Registrada</h2>
         {loading ? (
@@ -189,6 +209,7 @@ export default function AeronavesPage() {
                   <th className="p-3 font-semibold text-gray-700">Matrícula</th>
                   <th className="p-3 font-semibold text-gray-700">Horas</th>
                   <th className="p-3 font-semibold text-gray-700">Estado</th>
+                  <th className="p-3 font-semibold text-gray-700 text-right">Acciones</th>
                 </tr>
               </thead>
               <tbody>
@@ -208,6 +229,14 @@ export default function AeronavesPage() {
                       >
                         {aero.estado}
                       </span>
+                    </td>
+                    <td className="p-3 text-right">
+                      <button
+                        onClick={() => handleDelete(aero.id, aero.matricula)}
+                        className="bg-red-50 text-red-600 hover:bg-red-600 hover:text-white border border-red-200 px-3 py-1 rounded text-xs font-semibold transition duration-150"
+                      >
+                        Eliminar
+                      </button>
                     </td>
                   </tr>
                 ))}
