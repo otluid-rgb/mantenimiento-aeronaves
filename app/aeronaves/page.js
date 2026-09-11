@@ -125,12 +125,6 @@ export default function AeronavesPage() {
         Gestión de Flota de Aeronaves
       </h1>
 
-      {/* Recuadro de diagnóstico de la URL detectada */}
-      <div className="bg-gray-100 p-3 rounded mb-6 text-xs text-gray-700 font-mono break-all border">
-        <div><strong>URL Detectada en Vercel:</strong> {rawUrl || '(vacía)'}</div>
-        <div className="text-blue-700 font-bold mt-1"><strong>URL Depurada:</strong> {supabaseUrl || '(no procesada)'}</div>
-      </div>
-
       {errorMsg && (
         <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6">
           <strong className="font-bold">Error de Supabase: </strong>
@@ -194,7 +188,7 @@ export default function AeronavesPage() {
         </form>
       </section>
 
-      {/* Listado con columna de Acciones */}
+      {/* Listado */}
       <section className="bg-white p-6 rounded-lg shadow-md border">
         <h2 className="text-xl font-semibold mb-4 text-gray-700">Flota Registrada</h2>
         {loading ? (
