@@ -3,9 +3,19 @@
 import { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// Limpieza y formateo automático de las variables de entorno
+const rawUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseUrl = rawUrl
+  .trim()
+  .replace(/^["']|["']$/g, '')
+  .replace(/\/rest\/v1\/?$/i, '')
+  .replace(/\/+$/, '');
+
+const supabaseAnonKey = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '')
+  .trim()
+  .replace(/^["']|["']$/g, '');
+
+const supabase = createClient(supabaseUrl || 'https://placeholder.supabase.co', supabaseAnonKey);
 
 export default function AeronavesPage() {
   const [aeronaves, setAeronaves] = useState([]);
@@ -13,7 +23,6 @@ export default function AeronavesPage() {
   const [errorMsg, setErrorMsg] = useState(null);
   const [submitting, setSubmitting] = useState(false);
 
-  // Estado del formulario (sin modelo)
   const [formData, setFormData] = useState({
     matricula: '',
     horas_vuelo: '',
@@ -27,6 +36,12 @@ export default function AeronavesPage() {
   async function fetchAeronaves() {
     setLoading(true);
     setErrorMsg(null);
+
+    if (!supabaseUrl) {
+      setErrorMsg('No se ha detectado NEXT_PUBLIC_SUPABASE_URL en las variables de entorno.');
+      setLoading(false);
+      return;
+    }
 
     const { data, error } = await supabase
       .from('aeronaves')
@@ -80,6 +95,11 @@ export default function AeronavesPage() {
         Gestión de Flota de Aeronaves
       </h1>
 
+      {/* Indicador de diagnóstico de URL */}
+      <div className="bg-gray-100 p-3 rounded mb-6 text-xs text-gray-600 font-mono break-all">
+        <strong>Conectando a:</strong> {supabaseUrl || 'URL No definida'}
+      </div>
+
       {errorMsg && (
         <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6">
           <strong className="font-bold">Error de Supabase: </strong>
@@ -87,7 +107,7 @@ export default function AeronavesPage() {
         </div>
       )}
 
-      {/* Formulario simplificado */}
+      {/* Formulario */}
       <section className="bg-white p-6 rounded-lg shadow-md border mb-8">
         <h2 className="text-xl font-semibold mb-4 text-gray-700">Registrar Nueva Aeronave</h2>
         <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -143,7 +163,7 @@ export default function AeronavesPage() {
         </form>
       </section>
 
-      {/* Listado simplificado */}
+      {/* Listado */}
       <section className="bg-white p-6 rounded-lg shadow-md border">
         <h2 className="text-xl font-semibold mb-4 text-gray-700">Flota Registrada</h2>
         {loading ? (
